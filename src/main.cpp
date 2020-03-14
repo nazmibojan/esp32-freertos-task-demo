@@ -3,6 +3,7 @@
 
 #define ALL_EVENT_BITS 0xFF
 #define WIFI_CONNECTION_BIT (0x01UL)
+#define QUEUE_SIZE 15
 
 const char *ssid = "CONNEXT-AXIATA";
 const char *pass = "4xiatadigitallabs18";
@@ -10,7 +11,8 @@ int lastRequest = 0;
 
 TaskHandle_t uartTaskHandle;
 TaskHandle_t ledTaskHandle;
-EventGroupHandle_t sampleGroup = NULL;
+EventGroupHandle_t sampleGroup;
+QueueHandle_t messageQueue;
 
 void setupWifi();
 void uartTask(void *parameter);
@@ -22,8 +24,15 @@ void setup() {
   Serial.begin(9600);
   vTaskDelay(1000);
 
+  // Create event group
   sampleGroup = xEventGroupCreate();
   configASSERT(sampleGroup);
+
+  // Create message queue
+  messageQueue = xQueueCreate(QUEUE_SIZE, sizeof(char));
+  if (messageQueue == NULL) {
+    Serial.println("Error creating the queue");
+  }
 
   // Create RTOS task
   xTaskCreatePinnedToCore(uartTask, "UART Task", 2048, NULL, 1, &uartTaskHandle,
@@ -56,6 +65,12 @@ void uartTask(void *parameter) {
     clientBits &= WIFI_CONNECTION_BIT;
 
     if (clientBits != 0) {
+      char deviceIP[QUEUE_SIZE] = {0};
+      // Read message queue
+      for (int readIndex = 0; readIndex < QUEUE_SIZE; readIndex++) {
+        xQueueReceive(messageQueue, deviceIP, portMAX_DELAY);
+      }
+
       Serial.println("WiFi Connected...");
       Serial.println("");
       Serial.println("WiFi connected");
@@ -93,5 +108,11 @@ void setupWifi() {
   }
 
   randomSeed(micros());
+
+  String Esp32Ip = String(WiFi.localIP());
+
+  for (int insertIndex = 0; insertIndex < QUEUE_SIZE; insertIndex++) {
+    xQueueSend(messageQueue, &Esp32Ip.c_str()[insertIndex], portMAX_DELAY);
+  }
   xEventGroupSetBits(sampleGroup, WIFI_CONNECTION_BIT);
 }
